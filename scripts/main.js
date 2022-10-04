@@ -2,6 +2,14 @@ const moduleID = 'pf2e-darkness-effects';
 const dimLightEffectID = '1JYStHqExNLfpRxl';
 const darknessEffectID = 'uxlkHZ3L0VYLRfne';
 
+const logg = x => console.log(x);
+
+const checkLighting = scene => {
+    const { tokenVision, globalLight, darkness, globalLightThreshold } = scene;
+    return tokenVision || (!globalLight && (darkness > globalLightThreshold));
+};
+
+
 Hooks.once('init', () => {
     game.settings.register(moduleID, 'chatMessageAlert', {
         name: 'Chat Message Alerts',
@@ -37,6 +45,36 @@ Hooks.once('init', () => {
 });
 
 
+Hooks.on('updateScene', async (sceneDoc, diff, options, userID) => {
+    if (game.user.id !== userID) return;
+    
+    const shouldCheckLighting = checkLighting(sceneDoc);
+    if (canvas.scene === sceneDoc) await updateTokens();
+    else {
+        ui.notifications.info(`Switch to scene (${sceneDoc.name}) to update darkness effects.`);
+        const hk = Hooks.on('canvasReady', async canvas => {
+            if (game.user.id !== userID) return;
+            if (canvas.scene !== sceneDoc) return;
+
+            ui.notifications.info('Checking darkness effects...');
+            for (const token of sceneDoc.tokens) await setEffect(token);
+
+            Hooks.off('canvasReady', hk);
+        });
+    }
+
+    async function updateTokens() {
+        for (const token of canvas.scene.tokens) {
+            if (shouldCheckLighting) await setEffect(token);
+            else {
+                const { actor } = token;
+                const darknessEffectIDs = actor.itemTypes.effect.filter(e => e.flags[moduleID]).map(e => e.id);
+                await actor.deleteEmbeddedDocuments('Item', darknessEffectIDs);
+            }
+        }
+    }
+});
+
 Hooks.on('createToken', (tokenDoc, options, userID) => {
     if (game.user.id === userID) return setEffect(tokenDoc);
 });
@@ -50,6 +88,10 @@ Hooks.on('updateToken', (tokenDoc, diff, options, userID) => {
 
 
 async function setEffect(tokenDoc) {
+    const scene = tokenDoc.parent;
+    const shouldCheckLighting = checkLighting(scene);
+    if (!shouldCheckLighting) return;
+
     const { actor } = tokenDoc;
 
     // Use lighting layer quadtree to get light objects that collide with token bounds. While searching, filter out lights if the light's polygon does not contain token center point.
@@ -66,8 +108,10 @@ async function setEffect(tokenDoc) {
             const b = lightY - y;
             const distance = Math.sqrt((a ** 2) + (b ** 2));
             const { brightRadius } = light;
-            // If yes, flag the light to be caught later.
-            if (distance < brightRadius) light.brightlyLighting = true;
+            // Flag the light to be caught later.
+            light[moduleID] = {
+                brightlyLighting: distance < brightRadius
+            };
 
             return true;
         }
@@ -78,7 +122,7 @@ async function setEffect(tokenDoc) {
 
     let effect; // Set assumption that token is brightly lit. Remove all effects and do not create any new ones.
     if (!lights.size) effect = 'darkness'; // No lights found. Assign "In Darkness" effect.
-    else if (!lights.some(l => l.brightlyLighting)) effect = 'dimLight'; // Token is in light, but not within any bright radius. Assign "Dimly Lit" effect.
+    else if (!lights.some(l => l[moduleID]?.brightlyLighting)) effect = 'dimLight'; // Token is in light, but not within any bright radius. Assign "Dimly Lit" effect.
 
     // Get target effect from override if present; from compendium if not.
     let targetEffect, override;
@@ -120,7 +164,7 @@ async function setEffect(tokenDoc) {
     else content += 'bright light.';
 
     const whisper = [];
-    const tokenHidden = tokenDoc.hidden || actor.itemTypes.conditions.includes('Concealed') || actor.itemTypes.conditions.includes('Hidden');
+    const tokenHidden = tokenDoc.hidden || actor.itemTypes.condition.includes('Concealed') || actor.itemTypes.condition.includes('Hidden');
     if (chatMessageAlertSetting === 'gm' || tokenHidden) whisper.push(...game.users.filter(u => u.isGM).map(u => u.id));
     else if (chatMessageAlertSetting === 'players') whisper.push(...game.users.filter(u => !u.isGM).map(u => u.id));
 
