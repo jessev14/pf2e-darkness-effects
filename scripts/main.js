@@ -75,11 +75,25 @@ Hooks.on('createToken', (tokenDoc, options, userID) => {
     return setEffect(tokenDoc);
 });
 
+Hooks.on('createAmbientLight', async (lightDoc, options, userID) => {
+    if (game.user.id !== userID) return;
+
+    const scene = lightDoc.parent;
+    for (const token of scene.tokens) await setEffect(token);
+});
+
 Hooks.on('updateToken', (tokenDoc, diff, options, userID) => {
     if (!('x' in diff) && !('y' in diff)) return;
     if (game.user.id !== userID) return;
 
     return setEffect(tokenDoc);
+});
+
+Hooks.on('updateAmbientLight', async (lightDoc, diff, options, userID) => {
+    if (game.user.id !== userID) return;
+
+    const scene = lightDoc.parent;
+    for (const token of scene.tokens) await setEffect(token);
 });
 
 
