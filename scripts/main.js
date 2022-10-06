@@ -6,7 +6,9 @@ const logg = x => console.log(x);
 
 const checkLighting = scene => {
     const { tokenVision, globalLight, darkness, globalLightThreshold } = scene;
-    return tokenVision || (!globalLight && (darkness > globalLightThreshold));
+    const thresholdEnabled = typeof(globalLightThreshold) === 'number';
+    if (thresholdEnabled) return darkness > globalLightThreshold;
+    return !globalLight || tokenVision;
 };
 
 
@@ -45,38 +47,32 @@ Hooks.once('init', () => {
 });
 
 
-Hooks.on('updateScene', async (sceneDoc, diff, options, userID) => {
+Hooks.on('updateScene', (sceneDoc, diff, options, userID) => {
     if (game.user.id !== userID) return;
     
-    const shouldCheckLighting = checkLighting(sceneDoc);
-    if (canvas.scene === sceneDoc) await updateTokens();
-    else {
-        ui.notifications.info(`Switch to scene (${sceneDoc.name}) to update darkness effects.`);
-        const hk = Hooks.on('canvasReady', async canvas => {
+    if (sceneDoc === canvas.scene) return updateTokens(); // Viewed scene is scene being updated. Update tokens.
+    else { // Other scene is being updated. Prompt user to switch to that scene to update tokens. Required as lighting layer quadtree is used to determine lighting.
+        //ui.notifications.info(`Switch to scene (${sceneDoc.name}) to update darkness effects.`);
+        const hk = Hooks.on('canvasReady', async newCanvas => {
             if (game.user.id !== userID) return;
-            if (canvas.scene !== sceneDoc) return;
+            if (newCanvas !== sceneDoc) return;
 
-            ui.notifications.info('Checking darkness effects...');
-            for (const token of sceneDoc.tokens) await setEffect(token);
+            await updateTokens();
 
             Hooks.off('canvasReady', hk);
         });
     }
 
+
     async function updateTokens() {
-        for (const token of canvas.scene.tokens) {
-            if (shouldCheckLighting) await setEffect(token);
-            else {
-                const { actor } = token;
-                const darknessEffectIDs = actor.itemTypes.effect.filter(e => e.flags[moduleID]).map(e => e.id);
-                await actor.deleteEmbeddedDocuments('Item', darknessEffectIDs);
-            }
-        }
+        for (const token of sceneDoc.tokens) await setEffect(token);
     }
 });
 
 Hooks.on('createToken', (tokenDoc, options, userID) => {
-    if (game.user.id === userID) return setEffect(tokenDoc);
+    if (game.user.id !== userID) return;
+
+    return setEffect(tokenDoc);
 });
 
 Hooks.on('updateToken', (tokenDoc, diff, options, userID) => {
@@ -89,10 +85,16 @@ Hooks.on('updateToken', (tokenDoc, diff, options, userID) => {
 
 async function setEffect(tokenDoc) {
     const scene = tokenDoc.parent;
-    const shouldCheckLighting = checkLighting(scene);
-    if (!shouldCheckLighting) return;
+    if (scene !== canvas.scene) return;
 
     const { actor } = tokenDoc;
+
+    // If lighting should not be checked in this scene, remove all darkness effects.
+    const shouldCheckLighting = checkLighting(scene);
+    if (!shouldCheckLighting) {
+        const darknessEffectIDs = actor.itemTypes.effect.filter(e => e.flags[moduleID]).map(e => e.id);
+        return actor.deleteEmbeddedDocuments('Item', darknessEffectIDs);
+    }
 
     // Use lighting layer quadtree to get light objects that collide with token bounds. While searching, filter out lights if the light's polygon does not contain token center point.
     const { x, y } = tokenDoc.object.getCenter(tokenDoc.x, tokenDoc.y);
@@ -155,6 +157,7 @@ async function setEffect(tokenDoc) {
         await actor.createEmbeddedDocuments('Item', [createData]);
     }
 
+    // Create chat message if enabled.
     const chatMessageAlertSetting = game.settings.get(moduleID, 'chatMessageAlert');
     if (chatMessageAlertSetting === 'off') return;
 
