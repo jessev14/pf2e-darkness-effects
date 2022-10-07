@@ -82,9 +82,23 @@ Hooks.on('createAmbientLight', async (lightDoc, options, userID) => {
     for (const token of scene.tokens) await setEffect(token);
 });
 
-Hooks.on('updateToken', (tokenDoc, diff, options, userID) => {
+Hooks.on('updateToken', async (tokenDoc, diff, options, userID) => {
     if (!('x' in diff) && !('y' in diff)) return;
     if (game.user.id !== userID) return;
+
+    // Wait for additional updates to this token.
+    let additionalUpdate = false;
+    const hk = Hooks.on('preUpdateToken', (innerTokenDoc, diff, options, userID) => {
+        if (innerTokenDoc !== tokenDoc) return;
+
+        additionalUpdate = true;
+    });
+    const delay = 1000;
+    await new Promise(resolve => {
+        setTimeout(resolve, delay);
+    });
+    Hooks.off('preUpdateToken', hk);
+    if (additionalUpdate) return;
 
     return setEffect(tokenDoc);
 });
@@ -98,6 +112,13 @@ Hooks.on('updateAmbientLight', async (lightDoc, diff, options, userID) => {
 
 
 async function setEffect(tokenDoc) {
+    const delay = 1000;
+    while (canvas.controls.ruler._state) {
+        await new Promise(resolve => {
+            setTimeout(resolve, delay);
+        });
+    }
+
     const scene = tokenDoc.parent;
     if (scene !== canvas.scene) return;
 
@@ -169,7 +190,7 @@ async function setEffect(tokenDoc) {
             [effect]: true
         };
         await actor.createEmbeddedDocuments('Item', [createData]);
-    }
+    } else return;
 
     // Create chat message if enabled.
     const chatMessageAlertSetting = game.settings.get(moduleID, 'chatMessageAlert');
