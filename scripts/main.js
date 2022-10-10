@@ -75,13 +75,6 @@ Hooks.on('createToken', (tokenDoc, options, userID) => {
     return setEffect(tokenDoc);
 });
 
-Hooks.on('createAmbientLight', async (lightDoc, options, userID) => {
-    if (game.user.id !== userID) return;
-
-    const scene = lightDoc.parent;
-    for (const token of scene.tokens) await setEffect(token);
-});
-
 Hooks.on('updateToken', async (tokenDoc, diff, options, userID) => {
     if (!('x' in diff) && !('y' in diff)) return;
     if (game.user.id !== userID) return;
@@ -103,7 +96,24 @@ Hooks.on('updateToken', async (tokenDoc, diff, options, userID) => {
     return setEffect(tokenDoc);
 });
 
+Hooks.on('createAmbientLight', async (lightDoc, options, userID) => {
+    if (game.user.id !== userID) return;
+
+    await new Promise(resolve => {
+        setTimeout(resolve, 1000);
+    });
+    const scene = lightDoc.parent;
+    for (const token of scene.tokens) await setEffect(token);
+});
+
 Hooks.on('updateAmbientLight', async (lightDoc, diff, options, userID) => {
+    if (game.user.id !== userID) return;
+
+    const scene = lightDoc.parent;
+    for (const token of scene.tokens) await setEffect(token);
+});
+
+Hooks.on('deleteAmbientLight', async (lightDoc, options, userID) => {
     if (game.user.id !== userID) return;
 
     const scene = lightDoc.parent;
@@ -135,6 +145,8 @@ async function setEffect(tokenDoc) {
     const { x, y } = tokenDoc.object.getCenter(tokenDoc.x, tokenDoc.y);
     const lightPolygonFilter = (o, rect) => {
         const light = o.t;
+        if (light.document.hidden) return false;
+
         const { los } = light.source;
         const tokenInLightPolygon = los.contains(x, y);
         if (tokenInLightPolygon) {
@@ -190,7 +202,11 @@ async function setEffect(tokenDoc) {
             [effect]: true
         };
         await actor.createEmbeddedDocuments('Item', [createData]);
-    } else return;
+        await actor.unsetFlag(moduleID, 'brightlyLit');
+    } else {
+        if (actor.getFlag(moduleID, 'brightlyLit')) return;
+        else await actor.setFlag(moduleID, 'brightlyLit', true);
+    };
 
     // Create chat message if enabled.
     const chatMessageAlertSetting = game.settings.get(moduleID, 'chatMessageAlert');
