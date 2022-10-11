@@ -104,6 +104,9 @@ Hooks.on('updateToken', async (tokenDoc, diff, options, userID) => {
     Hooks.off('preUpdateToken', hk);
     if (additionalUpdate) return;
 
+    for (const token of tokenDoc.parent.tokens) await setEffect(token);
+    return;
+
     await setEffect(tokenDoc);
 
     // If token has light source, check darkness levels of other tokens contained by light polygon.
