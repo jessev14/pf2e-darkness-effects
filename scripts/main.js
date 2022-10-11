@@ -63,13 +63,13 @@ Hooks.once('init', () => {
 Hooks.on('updateScene', async (scene, diff, options, userID) => {
     if (game.user.id !== userID) return;
     
-    if (sceneDoc === canvas.scene) return updateTokens(); // Viewed scene is scene being updated. Update tokens.
+    if (scene === canvas.scene) return updateTokens(); // Viewed scene is scene being updated. Update tokens.
     else {
         // Other scene is being updated. Prompt user to switch to that scene to update tokens. Required as lighting layer quadtree is used to determine lighting.
         //ui.notifications.info(`Switch to scene (${sceneDoc.name}) to update darkness effects.`);
         const hk = Hooks.on('canvasReady', async newCanvas => {
             if (game.user.id !== userID) return;
-            if (newCanvas !== sceneDoc) return;
+            if (newCanvas !== scene) return;
 
             await updateTokens();
 
@@ -79,7 +79,7 @@ Hooks.on('updateScene', async (scene, diff, options, userID) => {
 
 
     async function updateTokens() {
-        for (const token of sceneDoc.tokens) await setEffect(token);
+        for (const token of canvas.scene.tokens) await setEffect(token);
     }
 });
 
