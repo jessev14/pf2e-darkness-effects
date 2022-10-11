@@ -203,6 +203,7 @@ async function setEffect(tokenDoc) {
         createData.flags[moduleID] = {
             [effect]: true
         };
+        createData.flags['autoanimations'].isEnabled = false;
         await actor.createEmbeddedDocuments('Item', [createData]);
     }
 
