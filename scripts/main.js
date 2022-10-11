@@ -254,7 +254,6 @@ function getDarknessLevel(tokenObj) {
     const lights = canvas.lighting.quadtree.getObjects(tokenObj.bounds, { collisionTest: lightPolygonFilter });
     // Also find light sources from other tokens.
     for (const tokenDoc of tokenObj.document.parent.tokens) {
-        continue;
         if (tokenDoc === tokenObj.document) continue;
         if (!tokenDoc.object.emitsLight) continue;
         if (!tokenDoc.object.light.los.contains(x, y)) continue;
