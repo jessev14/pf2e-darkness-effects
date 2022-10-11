@@ -1,15 +1,28 @@
 const moduleID = 'pf2e-darkness-effects';
-const dimLightEffectID = '1JYStHqExNLfpRxl';
-const darknessEffectID = 'uxlkHZ3L0VYLRfne';
+const effectCompendiumIDmap = {
+    1: '1JYStHqExNLfpRxl', // dimlyLit
+    0: 'uxlkHZ3L0VYLRfne' // inDarkness
+};
+const DARKNESS_LEVELS = {
+    brightlyLit: 2,
+    dimlyLit: 1,
+    inDarkness: 0
+};
 
 const logg = x => console.log(x);
 
-const checkLighting = scene => {
+const checkDarkness = scene => {
     const { tokenVision, globalLight, darkness, globalLightThreshold } = scene;
     const thresholdEnabled = typeof(globalLightThreshold) === 'number';
     if (thresholdEnabled) return darkness > globalLightThreshold;
     return !globalLight || tokenVision;
-};
+}
+
+const delay = async (ms = 1000) => {
+    await new Promise(resolve => {
+        setTimeout(resolve, ms);
+    });
+}
 
 
 Hooks.once('init', () => {
@@ -27,7 +40,7 @@ Hooks.once('init', () => {
         default: 'off'
     });
 
-    game.settings.register(moduleID, 'dimlyLit', {
+    game.settings.register(moduleID, effectCompendiumIDmap[DARKNESS_LEVELS['dimlyLit']], {
         name: '"Dimly Lit" Effect Override Item ID',
         hint: 'Enter the ID of an effect here to use instead of the bundled "Dimly Lit" effect.',
         scope: 'client',
@@ -36,7 +49,7 @@ Hooks.once('init', () => {
         default: ''
     });
 
-    game.settings.register(moduleID, 'inDarkness', {
+    game.settings.register(moduleID, effectCompendiumIDmap[DARKNESS_LEVELS['inDarkness']], {
         name: '"In Darkness" Effect Override Item ID',
         hint: 'Enter the ID of an effect here to use instead of the bundled "In Darkness" effect.',
         scope: 'client',
@@ -47,11 +60,12 @@ Hooks.once('init', () => {
 });
 
 
-Hooks.on('updateScene', (sceneDoc, diff, options, userID) => {
+Hooks.on('updateScene', async (scene, diff, options, userID) => {
     if (game.user.id !== userID) return;
     
     if (sceneDoc === canvas.scene) return updateTokens(); // Viewed scene is scene being updated. Update tokens.
-    else { // Other scene is being updated. Prompt user to switch to that scene to update tokens. Required as lighting layer quadtree is used to determine lighting.
+    else {
+        // Other scene is being updated. Prompt user to switch to that scene to update tokens. Required as lighting layer quadtree is used to determine lighting.
         //ui.notifications.info(`Switch to scene (${sceneDoc.name}) to update darkness effects.`);
         const hk = Hooks.on('canvasReady', async newCanvas => {
             if (game.user.id !== userID) return;
@@ -69,15 +83,15 @@ Hooks.on('updateScene', (sceneDoc, diff, options, userID) => {
     }
 });
 
-Hooks.on('createToken', (tokenDoc, options, userID) => {
+Hooks.on('createToken', async (tokenDoc, options, userID) => {
     if (game.user.id !== userID) return;
 
-    return setEffect(tokenDoc);
+    await setEffect(tokenDoc);
 });
 
 Hooks.on('updateToken', async (tokenDoc, diff, options, userID) => {
-    if (!('x' in diff) && !('y' in diff)) return;
     if (game.user.id !== userID) return;
+    if (!('x' in diff) && !('y' in diff) && !('dim' in diff.light) && !('bright' in diff.light)) return;
 
     // Wait for additional updates to this token.
     let additionalUpdate = false;
@@ -86,135 +100,116 @@ Hooks.on('updateToken', async (tokenDoc, diff, options, userID) => {
 
         additionalUpdate = true;
     });
-    const delay = 1000;
-    await new Promise(resolve => {
-        setTimeout(resolve, delay);
-    });
+    await delay(1000);
     Hooks.off('preUpdateToken', hk);
     if (additionalUpdate) return;
 
-    return setEffect(tokenDoc);
+    await setEffect(tokenDoc);
+
+    // If token has light source, check darkness levels of other tokens contained by light polygon.
+    for (const otherTokenDoc of tokenDoc.parent.tokens) {
+        if (otherTokenDoc === tokenDoc) continue;
+
+        const { x, y } = otherTokenDoc.object.getCenter(otherTokenDoc.x, otherTokenDoc.y);
+        if (!tokenDoc.object.light.los?.contains(x, y)) continue;
+
+        await setEffect(otherTokenDoc);
+    }
+});
+
+Hooks.on('deleteToken', async (tokenDoc, options, userID) => {
+    if (game.user.id !== userID) return;
+
+    // Wait for additional token deletions.
+    let additionalUpdate = false;
+    const hk = Hooks.on('preDeleteToken', (innerTokenDoc, options, userID) => {
+        additionalUpdate = true;
+    });
+    await delay(1000);
+    Hooks.off('preDeleteToken', hk);
+    if (additionalUpdate) return;
+
+    for (const token of tokenDoc.parent.tokens) await setEffect(token);    
 });
 
 Hooks.on('createAmbientLight', async (lightDoc, options, userID) => {
     if (game.user.id !== userID) return;
-
-    await new Promise(resolve => {
-        setTimeout(resolve, 1000);
-    });
-    const scene = lightDoc.parent;
-    for (const token of scene.tokens) await setEffect(token);
+    
+    // Wait for this light to be included in light layer quadtree
+    await delay(1000);
+    for (const tokenDoc of lightDoc.parent.tokens) await setEffect(tokenDoc);
 });
 
 Hooks.on('updateAmbientLight', async (lightDoc, diff, options, userID) => {
     if (game.user.id !== userID) return;
 
-    const scene = lightDoc.parent;
-    for (const token of scene.tokens) await setEffect(token);
+    for (const tokenDoc of lightDoc.parent.tokens) await setEffect(tokenDoc);
 });
 
 Hooks.on('deleteAmbientLight', async (lightDoc, options, userID) => {
     if (game.user.id !== userID) return;
 
-    const scene = lightDoc.parent;
-    for (const token of scene.tokens) await setEffect(token);
+    for (const tokenDoc of lightDoc.parent.tokens) await setEffect(tokenDoc);
 });
 
 
 async function setEffect(tokenDoc) {
-    const delay = 1000;
-    while (canvas.controls.ruler._state) {
-        await new Promise(resolve => {
-            setTimeout(resolve, delay);
-        });
-    }
-
-    const scene = tokenDoc.parent;
-    if (scene !== canvas.scene) return;
+    // Wait for ruler-based movement to complete.
+    while (canvas.controls.ruler._state) await delay(1000);
 
     const { actor } = tokenDoc;
 
-    // If lighting should not be checked in this scene, remove all darkness effects.
-    const shouldCheckLighting = checkLighting(scene);
-    if (!shouldCheckLighting) {
+    const shouldSceneCheckDarkness = checkDarkness(tokenDoc.parent);
+    if (!shouldSceneCheckDarkness) {
+        // If darkness should not be checked in this scene, remove all darkness effects.
         const darknessEffectIDs = actor.itemTypes.effect.filter(e => e.flags[moduleID]).map(e => e.id);
-        return actor.deleteEmbeddedDocuments('Item', darknessEffectIDs);
+        await actor.deleteEmbeddedDocuments('Item', darknessEffectIDs);
+        await actor.unsetFlag(moduleID, 'darknessLevel');
+        return;
     }
 
-    // Use lighting layer quadtree to get light objects that collide with token bounds. While searching, filter out lights if the light's polygon does not contain token center point.
-    const { x, y } = tokenDoc.object.getCenter(tokenDoc.x, tokenDoc.y);
-    const lightPolygonFilter = (o, rect) => {
-        const light = o.t;
-        if (light.document.hidden) return false;
+    if (!tokenDoc.object) return;
 
-        const { los } = light.source;
-        const tokenInLightPolygon = los.contains(x, y);
-        if (tokenInLightPolygon) {
-            // If token is within light polygon, determine if token is within light's bright radius.
-            const lightX = light.x;
-            const lightY = light.y;
-            const a = lightX - x;
-            const b = lightY - y;
-            const distance = Math.sqrt((a ** 2) + (b ** 2));
-            const { brightRadius } = light;
-            // Flag the light to be caught later.
-            light[moduleID] = {
-                brightlyLighting: distance < brightRadius
-            };
+    // Get current darkness level and compare to previous level.
+    const darknessLevel = getDarknessLevel(tokenDoc.object);
+    const previousDarknessLevel = actor.getFlag(moduleID, 'darknessLevel');
+    if (previousDarknessLevel === darknessLevel) return;
+    
+    // Save new darkness level as flag on actor.
+    await actor.setFlag(moduleID, 'darknessLevel', darknessLevel);
 
-            return true;
-        }
+    // Remove pre-existing darkness effects.
+    const darknessEffectIDs = actor.itemTypes.effect.filter(e => e.flags[moduleID]).map(e => e.id);
+    await actor.deleteEmbeddedDocuments('Item', darknessEffectIDs);
 
-        return false;
-    };
-    const lights = canvas.lighting.quadtree.getObjects(tokenDoc.bounds, { collisionTest: lightPolygonFilter });
-
-    let effect; // Set assumption that token is brightly lit. Remove all effects and do not create any new ones.
-    if (!lights.size) effect = 'darkness'; // No lights found. Assign "In Darkness" effect.
-    else if (!lights.some(l => l[moduleID]?.brightlyLighting)) effect = 'dimLight'; // Token is in light, but not within any bright radius. Assign "Dimly Lit" effect.
-
-    // Get target effect from override if present; from compendium if not.
-    let targetEffect, override;
+    // Add new darkness effect from override if present; from compendium if not.
+    let effect, override;
     try {
-        override = game.settings.get(moduleID, effect);
+        override = game.settings.get(moduleID, effectCompendiumIDmap[darknessLevel]);
     } catch (e) { }
 
-    if (override) targetEffect = game.items.get(override);
+    if (override) effect = game.items.get(override);
     else {
-        let effectID;
-        if (effect) effectID = effect === 'dimLight' ? dimLightEffectID : darknessEffectID;
+        const effectID = effectCompendiumIDmap[darknessLevel];
         const compendium = game.packs.get(`${moduleID}.darkness-effects`);
-        targetEffect = await compendium.getDocument(effectID);
+        effect = await compendium.getDocument(effectID);
     }
 
-    // Check if target effect is already on actor.
-    const darknessEffects = actor.itemTypes.effect.filter(e => e.flags[moduleID]);
-    if (darknessEffects.some(e => e.name === targetEffect?.name)) return;
-
-    // Remove all pre-existing darkness effects.
-    const effectIDs = darknessEffects.map(e => e.id);
-    await actor.deleteEmbeddedDocuments('Item', effectIDs);
-
-    // Create effect on actor.
-    if (targetEffect) {
-        const createData = targetEffect.toObject();
+    if (effect) {
+        const createData = effect.toObject();
         createData.flags[moduleID] = {
             [effect]: true
         };
         await actor.createEmbeddedDocuments('Item', [createData]);
-        await actor.unsetFlag(moduleID, 'brightlyLit');
-    } else {
-        if (actor.getFlag(moduleID, 'brightlyLit')) return;
-        else await actor.setFlag(moduleID, 'brightlyLit', true);
-    };
+    }
 
     // Create chat message if enabled.
     const chatMessageAlertSetting = game.settings.get(moduleID, 'chatMessageAlert');
     if (chatMessageAlertSetting === 'off') return;
 
     let content = `${tokenDoc.name} enters `;
-    if (effect === 'dimLight') content += 'dim light.';
-    else if (effect === 'darkness') content += 'darkness.';
+    if (darknessLevel === DARKNESS_LEVELS['dimlyLit']) content += 'dim light.';
+    else if (darknessLevel === DARKNESS_LEVELS['inDarkness']) content += 'darkness.';
     else content += 'bright light.';
 
     const whisper = [];
@@ -226,4 +221,66 @@ async function setEffect(tokenDoc) {
         content,
         whisper
     });
+}
+
+function getDarknessLevel(tokenObj) {
+    // If token has bright radius, then token is brightly lit.
+    if (tokenObj.brightRadius) return DARKNESS_LEVELS['brightlyLit'];
+    // If token has dim radius (but no bright radius), then token is dimly lit.
+    if (tokenObj.dimRadius) return DARKNESS_LEVELS['dimlyLit'];
+
+    // Use lighting layer quadtree to get light objects that collide with token bounds.
+    // While searching, filter out lights if the light's polygon does not contain token.
+    const { x, y } = tokenObj.getCenter(tokenObj.x, tokenObj.y);
+    const lightPolygonFilter = (o, rect) => {
+        const light = o.t;
+        if (!light.emitsLight) return false;
+
+        const { los } = light.source;
+        const tokenInLightPolygon = los.contains(x, y);
+        if (tokenInLightPolygon) {
+            // If token is within light polygon, determine if token is within light's bright radius.
+            const tokenInBrightRadius = inBrightRadius(tokenObj, light);
+            // Flag the light to be caught later.
+            light[moduleID] = {
+                brightlyLighting: tokenInBrightRadius
+            };
+
+            return true;
+        }
+
+        return false;
+    };
+    const lights = canvas.lighting.quadtree.getObjects(tokenObj.bounds, { collisionTest: lightPolygonFilter });
+    // Also find light sources from other tokens.
+    for (const tokenDoc of tokenObj.document.parent.tokens) {
+        continue;
+        if (tokenDoc === tokenObj.document) continue;
+        if (!tokenDoc.object.emitsLight) continue;
+        if (!tokenDoc.object.light.los.contains(x, y)) continue;
+
+        const tokenInBrightRadius = inBrightRadius(tokenObj, tokenDoc.object);
+        tokenDoc[moduleID] = {
+            brightlyLighting: tokenInBrightRadius
+        };
+
+        lights.add(tokenDoc);
+    }
+
+    let darknessLevel = DARKNESS_LEVELS['brightlyLit']; // First assume token is brightly lit by a light source.
+    if (!lights.size) darknessLevel = DARKNESS_LEVELS['inDarkness']; // If no lights found, token must be in darkness.
+    else if (!lights.some(l => l[moduleID]?.brightlyLighting)) darknessLevel = DARKNESS_LEVELS['dimlyLit']; // If any lights were found, but token was not in any bright radius, it must be dimly lit.
+
+    return darknessLevel;
+}
+
+function inBrightRadius(tokenObj, lightSource) {
+    const { x: tokenX, y: tokenY } = tokenObj.getCenter(tokenObj.x, tokenObj.y);
+    const { x: lightX, y: lightY, brightRadius } = lightSource;
+
+    const a = lightX - tokenX;
+    const b = lightY - tokenY;
+    const distance = Math.sqrt((a ** 2) + (b ** 2));
+    
+    return distance <= brightRadius;
 }
