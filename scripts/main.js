@@ -205,8 +205,11 @@ async function setEffect(tokenDoc) {
                 effectID: effect.id
             },
             autoanimations: {
+                version: 5,
                 isEnabled: false,
-                version: 5
+                macro: {
+                    enabled: false
+                }
             }
         };
         await actor.createEmbeddedDocuments('Item', [createData]);
@@ -222,7 +225,7 @@ async function setEffect(tokenDoc) {
     else content += 'bright light.';
 
     const whisper = [];
-    const tokenHidden = tokenDoc.hidden || actor.itemTypes.condition.includes('Concealed') || actor.itemTypes.condition.includes('Hidden');
+    const tokenHidden = tokenDoc.hidden || actor.itemTypes.condition.includes('Concealed') || actor.itemTypes.condition.includes('Undetected');
     if (chatMessageAlertSetting === 'gm' || tokenHidden) whisper.push(...game.users.filter(u => u.isGM).map(u => u.id));
     else if (chatMessageAlertSetting === 'players') whisper.push(...game.users.filter(u => !u.isGM).map(u => u.id));
 
