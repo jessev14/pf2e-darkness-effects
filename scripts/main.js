@@ -200,10 +200,14 @@ async function setEffect(tokenDoc) {
 
     if (effect) {
         const createData = effect.toObject();
-        createData.flags[moduleID] = {
-            [effect]: true
+        createData.flags = {
+            [moduleID]: {
+                effectID: effect.id
+            },
+            autoanimations: {
+                isEnabled: false
+            }
         };
-        createData.flags['autoanimations'].isEnabled = false;
         await actor.createEmbeddedDocuments('Item', [createData]);
     }
 
