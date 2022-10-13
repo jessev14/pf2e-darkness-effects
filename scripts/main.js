@@ -225,7 +225,7 @@ async function setEffect(tokenDoc) {
     else content += 'bright light.';
 
     const whisper = [];
-    const tokenHidden = tokenDoc.hidden || actor.itemTypes.condition.includes('Concealed') || actor.itemTypes.condition.includes('Undetected');
+    const tokenHidden = tokenDoc.hidden || actor.itemTypes.condition.some(c => ['hidden', 'invisible', 'undetected'].includes(c.slug));
     if (chatMessageAlertSetting === 'gm' || tokenHidden) whisper.push(...game.users.filter(u => u.isGM).map(u => u.id));
     else if (chatMessageAlertSetting === 'players') whisper.push(...game.users.filter(u => !u.isGM).map(u => u.id));
 
