@@ -203,12 +203,10 @@ async function setEffect(tokenDoc) {
         createData.flags = {
             [moduleID]: {
                 effectID: effect.id
-            },
-            autoanimations: {
-                isEnabled: false
             }
         };
-        await actor.createEmbeddedDocuments('Item', [createData]);
+        const [createdEffect] = await actor.createEmbeddedDocuments('Item', [createData]);
+        await createdEffect.setFlag('autoanimations', 'isEnabled', false);
     }
 
     // Create chat message if enabled.
