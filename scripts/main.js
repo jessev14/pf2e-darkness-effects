@@ -91,7 +91,7 @@ Hooks.on('createToken', async (tokenDoc, options, userID) => {
 
 Hooks.on('updateToken', async (tokenDoc, diff, options, userID) => {
     if (game.user.id !== userID) return;
-    if (!('x' in diff) && !('y' in diff) && !('dim' in diff.light) && !('bright' in diff.light)) return;
+    if (!('x' in diff) && !('y' in diff) && !('dim' in (diff.light || {})) && !('bright' in (diff.light || {}))) return;
 
     // Wait for additional updates to this token.
     let additionalUpdate = false;
@@ -203,10 +203,13 @@ async function setEffect(tokenDoc) {
         createData.flags = {
             [moduleID]: {
                 effectID: effect.id
+            },
+            autoanimations: {
+                isEnabled: false,
+                version: 5
             }
         };
-        const [createdEffect] = await actor.createEmbeddedDocuments('Item', [createData]);
-        await createdEffect.setFlag('autoanimations', 'isEnabled', false);
+        await actor.createEmbeddedDocuments('Item', [createData]);
     }
 
     // Create chat message if enabled.
