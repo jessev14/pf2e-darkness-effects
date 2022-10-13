@@ -234,8 +234,8 @@ function getDarknessLevel(tokenObj) {
     if (tokenObj.dimRadius) return DARKNESS_LEVELS['dimlyLit'];
 
     // Use lighting layer quadtree to get light objects that collide with token bounds.
-    // While searching, filter out lights if the light's polygon does not contain token.
     const { x, y } = tokenObj.getCenter(tokenObj.x, tokenObj.y);
+    // While searching, filter out lights if the light's polygon does not contain token.
     const lightPolygonFilter = (o, rect) => {
         const light = o.t;
         if (!light.emitsLight) return false;
@@ -256,6 +256,7 @@ function getDarknessLevel(tokenObj) {
         return false;
     };
     const lights = canvas.lighting.quadtree.getObjects(tokenObj.bounds, { collisionTest: lightPolygonFilter });
+    
     // Also find light sources from other tokens.
     for (const tokenDoc of tokenObj.document.parent.tokens) {
         if (tokenDoc === tokenObj.document) continue;
