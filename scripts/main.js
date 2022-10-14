@@ -8,6 +8,7 @@ const DARKNESS_LEVELS = {
     dimlyLit: 1,
     inDarkness: 0
 };
+let socket;
 
 const logg = x => console.log(x);
 
@@ -59,6 +60,11 @@ Hooks.once('init', () => {
     });
 });
 
+Hooks.once('socketlib.ready', () => {
+    socket = socketlib.registerModule(moduleID);
+    socket.register('setEffect', setEffect);
+});
+
 
 Hooks.on('updateScene', async (scene, diff, options, userID) => {
     if (game.user.id !== userID) return;
@@ -79,14 +85,14 @@ Hooks.on('updateScene', async (scene, diff, options, userID) => {
 
 
     async function updateTokens() {
-        for (const token of canvas.scene.tokens) await setEffect(token);
+        for (const tokenDoc of canvas.scene.tokens) await socket.executeAsGM('setEffect', tokenDoc.uuid);
     }
 });
 
 Hooks.on('createToken', async (tokenDoc, options, userID) => {
     if (game.user.id !== userID) return;
 
-    await setEffect(tokenDoc);
+    await socket.executeAsGM('setEffect', tokenDoc.uuid);
 });
 
 Hooks.on('updateToken', async (tokenDoc, diff, options, userID) => {
@@ -104,20 +110,10 @@ Hooks.on('updateToken', async (tokenDoc, diff, options, userID) => {
     Hooks.off('preUpdateToken', hk);
     if (additionalUpdate) return;
 
-    for (const token of tokenDoc.parent.tokens) await setEffect(token);
-    return;
+    // Wait for ruler-based movement to complete.
+    while (canvas.controls.ruler._state) await delay(1000);
 
-    await setEffect(tokenDoc);
-
-    // If token has light source, check darkness levels of other tokens contained by light polygon.
-    for (const otherTokenDoc of tokenDoc.parent.tokens) {
-        if (otherTokenDoc === tokenDoc) continue;
-
-        const { x, y } = otherTokenDoc.object.getCenter(otherTokenDoc.x, otherTokenDoc.y);
-        if (!tokenDoc.object.light.los?.contains(x, y)) continue;
-
-        await setEffect(otherTokenDoc);
-    }
+    for (const token of tokenDoc.parent.tokens) await socket.executeAsGM('setEffect', token.uuid);
 });
 
 Hooks.on('deleteToken', async (tokenDoc, options, userID) => {
@@ -132,7 +128,20 @@ Hooks.on('deleteToken', async (tokenDoc, options, userID) => {
     Hooks.off('preDeleteToken', hk);
     if (additionalUpdate) return;
 
-    for (const token of tokenDoc.parent.tokens) await setEffect(token);    
+    for (const token of tokenDoc.parent.tokens) await socket.executeAsGM('setEffect', token.uuid);    
+});
+
+Hooks.on('preUpdateItem', (itemDoc, diff, options, userID) => {
+    if (!'equipped' in (diff.system || {})) return;
+
+    const hk = Hooks.on('updateItem', async (innerItemDoc, innerDiff, innerOptions, innerUserID) => {
+        if (innerUserID !== userID) return;
+
+        await delay(1000); // Short delay to allow RE-based light to appear.
+        for (const tokenDoc of itemDoc.parent.getActiveTokens()[0]?.document.parent.tokens || []) await socket.executeAsGM('setEffect', tokenDoc.uuid);
+        Hooks.off('updateIte', hk);
+    });
+    
 });
 
 Hooks.on('createAmbientLight', async (lightDoc, options, userID) => {
@@ -140,25 +149,26 @@ Hooks.on('createAmbientLight', async (lightDoc, options, userID) => {
     
     // Wait for this light to be included in light layer quadtree
     await delay(1000);
-    for (const tokenDoc of lightDoc.parent.tokens) await setEffect(tokenDoc);
+    for (const tokenDoc of lightDoc.parent.tokens) await socket.executeAsGM('setEffect', tokenDoc.uuid);
 });
 
 Hooks.on('updateAmbientLight', async (lightDoc, diff, options, userID) => {
     if (game.user.id !== userID) return;
 
-    for (const tokenDoc of lightDoc.parent.tokens) await setEffect(tokenDoc);
+    for (const tokenDoc of lightDoc.parent.tokens) await socket.executeAsGM('setEffect', tokenDoc.uuid);
 });
 
 Hooks.on('deleteAmbientLight', async (lightDoc, options, userID) => {
     if (game.user.id !== userID) return;
 
-    for (const tokenDoc of lightDoc.parent.tokens) await setEffect(tokenDoc);
+    for (const tokenDoc of lightDoc.parent.tokens) await socket.executeAsGM('setEffect', tokenDoc.uuid);
 });
 
 
-async function setEffect(tokenDoc) {
-    // Wait for ruler-based movement to complete.
-    while (canvas.controls.ruler._state) await delay(1000);
+async function setEffect(tokenDocUUID) {
+    
+    const tokenDoc = await fromUuid(tokenDocUUID);
+    if (!tokenDoc) return;
 
     const { actor } = tokenDoc;
 
@@ -202,7 +212,7 @@ async function setEffect(tokenDoc) {
         const createData = effect.toObject();
         createData.flags = {
             [moduleID]: {
-                effectID: effect.id
+                darknessLevel: darknessLevel
             },
             autoanimations: {
                 version: 5,
