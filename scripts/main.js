@@ -68,7 +68,7 @@ Hooks.once('socketlib.ready', () => {
 
 Hooks.on('updateScene', async (scene, diff, options, userID) => {
     if (game.user.id !== userID) return;
-    
+
     if (scene === canvas.scene) return updateTokens(); // Viewed scene is scene being updated. Update tokens.
     else {
         // Other scene is being updated. Prompt user to switch to that scene to update tokens. Required as lighting layer quadtree is used to determine lighting.
@@ -128,7 +128,7 @@ Hooks.on('deleteToken', async (tokenDoc, options, userID) => {
     Hooks.off('preDeleteToken', hk);
     if (additionalUpdate) return;
 
-    for (const token of tokenDoc.parent.tokens) await socket.executeAsGM('setEffect', token.uuid);    
+    for (const token of tokenDoc.parent.tokens) await socket.executeAsGM('setEffect', token.uuid);
 });
 
 Hooks.on('preUpdateItem', (itemDoc, diff, options, userID) => {
@@ -141,12 +141,12 @@ Hooks.on('preUpdateItem', (itemDoc, diff, options, userID) => {
         for (const tokenDoc of itemDoc.parent.getActiveTokens()[0]?.document.parent.tokens || []) await socket.executeAsGM('setEffect', tokenDoc.uuid);
         Hooks.off('updateIte', hk);
     });
-    
+
 });
 
 Hooks.on('createAmbientLight', async (lightDoc, options, userID) => {
     if (game.user.id !== userID) return;
-    
+
     // Wait for this light to be included in light layer quadtree
     await delay(1000);
     for (const tokenDoc of lightDoc.parent.tokens) await socket.executeAsGM('setEffect', tokenDoc.uuid);
@@ -166,7 +166,7 @@ Hooks.on('deleteAmbientLight', async (lightDoc, options, userID) => {
 
 
 async function setEffect(tokenDocUUID) {
-    
+
     const tokenDoc = await fromUuid(tokenDocUUID);
     if (!tokenDoc) return;
 
@@ -176,7 +176,9 @@ async function setEffect(tokenDocUUID) {
     if (!shouldSceneCheckDarkness) {
         // If darkness should not be checked in this scene, remove all darkness effects.
         const darknessEffectIDs = actor.itemTypes.effect.filter(e => e.flags[moduleID]).map(e => e.id);
-        await actor.deleteEmbeddedDocuments('Item', darknessEffectIDs);
+        if (darknessEffectIDs) {
+            await actor.deleteEmbeddedDocuments('Item', darknessEffectIDs);
+        }
         await actor.unsetFlag(moduleID, 'darknessLevel');
         return;
     }
@@ -187,13 +189,15 @@ async function setEffect(tokenDocUUID) {
     const darknessLevel = getDarknessLevel(tokenDoc.object);
     const previousDarknessLevel = actor.getFlag(moduleID, 'darknessLevel');
     if (previousDarknessLevel === darknessLevel) return;
-    
+
     // Save new darkness level as flag on actor.
     await actor.setFlag(moduleID, 'darknessLevel', darknessLevel);
 
     // Remove pre-existing darkness effects.
     const darknessEffectIDs = actor.itemTypes.effect.filter(e => e.flags[moduleID]).map(e => e.id);
-    await actor.deleteEmbeddedDocuments('Item', darknessEffectIDs);
+    if (darknessEffectIDs) {
+        await actor.deleteEmbeddedDocuments('Item', darknessEffectIDs);
+    }
 
     // Add new darkness effect from override if present; from compendium if not.
     let effect, override;
@@ -274,7 +278,7 @@ function getDarknessLevel(tokenObj) {
         return false;
     };
     const lights = canvas.lighting.quadtree.getObjects(tokenObj.bounds, { collisionTest: lightPolygonFilter });
-    
+
     // Also find light sources from other tokens.
     for (const tokenDoc of tokenObj.document.parent.tokens) {
         if (tokenDoc === tokenObj.document) continue;
@@ -303,6 +307,6 @@ function inBrightRadius(tokenObj, lightSource) {
     const a = lightX - tokenX;
     const b = lightY - tokenY;
     const distance = Math.sqrt((a ** 2) + (b ** 2));
-    
+
     return distance <= brightRadius;
 }
