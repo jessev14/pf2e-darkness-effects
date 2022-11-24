@@ -123,7 +123,7 @@ Hooks.on('deleteToken', async (tokenDoc, options, userID) => {
     Hooks.off('preDeleteToken', hk);
     if (additionalUpdate) return;
 
-    for (const token of tokenDoc.parent.tokens) await socket.executeAsGM('setEffect', token.uuid);    
+    for (const token of tokenDoc.parent.tokens) await socket.executeAsGM('setEffect', token.uuid);
 });
 
 Hooks.on('preUpdateItem', (itemDoc, diff, options, userID) => {
@@ -136,7 +136,7 @@ Hooks.on('preUpdateItem', (itemDoc, diff, options, userID) => {
         for (const tokenDoc of itemDoc.parent.getActiveTokens()[0]?.document.parent.tokens || []) await socket.executeAsGM('setEffect', tokenDoc.uuid);
         Hooks.off('updateIte', hk);
     });
-    
+
 });
 
 Hooks.on('createAmbientLight', async (lightDoc, options, userID) => {
@@ -160,7 +160,7 @@ Hooks.on('deleteAmbientLight', async (lightDoc, options, userID) => {
 
 
 async function setEffect(tokenDocUUID) {
-    
+
     const tokenDoc = await fromUuid(tokenDocUUID);
     if (!tokenDoc) return;
 
@@ -169,7 +169,9 @@ async function setEffect(tokenDocUUID) {
     const shouldSceneCheckDarkness = checkDarkness(tokenDoc.parent);
     if (!shouldSceneCheckDarkness) {
         const darknessEffectIDs = actor.itemTypes.effect.filter(e => e.flags[moduleID]).map(e => e.id);
-        await actor.deleteEmbeddedDocuments('Item', darknessEffectIDs);
+        if (darknessEffectIDs) {
+            await actor.deleteEmbeddedDocuments('Item', darknessEffectIDs);
+        }
         await actor.unsetFlag(moduleID, 'darknessLevel');
         return;
     }
@@ -179,11 +181,13 @@ async function setEffect(tokenDocUUID) {
     const darknessLevel = getDarknessLevel(tokenDoc.object);
     const previousDarknessLevel = actor.getFlag(moduleID, 'darknessLevel');
     if (previousDarknessLevel === darknessLevel) return;
-    
+
     await actor.setFlag(moduleID, 'darknessLevel', darknessLevel);
 
     const darknessEffectIDs = actor.itemTypes.effect.filter(e => e.flags[moduleID]).map(e => e.id);
-    await actor.deleteEmbeddedDocuments('Item', darknessEffectIDs);
+    if (darknessEffectIDs) {
+        await actor.deleteEmbeddedDocuments('Item', darknessEffectIDs);
+    }
 
     let effect, override;
     try {
@@ -256,7 +260,6 @@ function getDarknessLevel(tokenObj) {
         return false;
     };
     const lights = canvas.lighting.quadtree.getObjects(tokenObj.bounds, { collisionTest: lightPolygonFilter });
-    
     for (const tokenDoc of tokenObj.document.parent.tokens) {
         if (tokenDoc === tokenObj.document) continue;
         if (!tokenDoc.object.emitsLight) continue;
@@ -284,6 +287,6 @@ function inBrightRadius(tokenObj, lightSource) {
     const a = lightX - tokenX;
     const b = lightY - tokenY;
     const distance = Math.sqrt((a ** 2) + (b ** 2));
-    
+
     return distance <= brightRadius;
 }
